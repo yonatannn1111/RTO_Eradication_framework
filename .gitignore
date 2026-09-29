@@ -1,0 +1,14 @@
+# Secrets
+.env
+*.token
+secrets.json
+
+# Snapshots and generated data
+snapshots/
+*.report.json
+conveyor_events_*.csv
+conveyor_queue_*.csv
+conveyor_summary_*.csv
+
+# Logs
+*.log
