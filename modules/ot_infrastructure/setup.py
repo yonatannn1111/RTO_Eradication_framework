@@ -1,6 +1,3 @@
-"""
-OT Infrastructure — verify OpenPLC is reachable and its protocols are up.
-"""
 import socket
 from dataclasses import dataclass
 
