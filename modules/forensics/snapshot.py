@@ -54,18 +54,3 @@ def capture(plc_ip: str, tcp_port: int = 1102,
     return {"path": fname, **payload}
 
 
-def diff(snapshot_a: dict, snapshot_b: dict) -> dict:
-    """Compare two snapshots and return per-area byte diffs."""
-    result = {"areas": {}}
-    for name in snapshot_a["areas"]:
-        a = snapshot_a["areas"][name] or []
-        b = snapshot_b["areas"][name] or []
-        changes = [
-            {"offset": i, "from": x, "to": y}
-            for i, (x, y) in enumerate(zip(a, b)) if x != y
-        ]
-        result["areas"][name] = {
-            "count": len(changes),
-            "changes": changes[:50],       # cap for readability
-        }
-    return result

@@ -1,0 +1,13 @@
+# Core runtime
+pymodbus>=3.5.0
+python-snap7>=2.0.0
+simpy>=4.1.0
+pyyaml>=6.0
+
+# Data / plotting (optional, used by analysis scripts)
+pandas>=2.0.0
+matplotlib>=3.7.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
