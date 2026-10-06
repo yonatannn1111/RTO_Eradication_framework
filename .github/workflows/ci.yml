@@ -33,7 +33,7 @@ jobs:
       - name: Check Python syntax
         run: python -m compileall -q modules tests
 
-            - name: Run tests
+      - name: Run tests
         run: |
           set +e
           pytest -v
