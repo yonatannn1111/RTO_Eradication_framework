@@ -1,4 +1,7 @@
-"""Forensics package — lazy imports for snap7-dependent modules."""
+"""
+Forensics package — lazy imports so the package can be imported
+even when optional dependencies are missing.
+"""
 
 
 def capture(*args, **kwargs):
@@ -16,6 +19,24 @@ def validate(*args, **kwargs):
     return _validate(*args, **kwargs)
 
 
-from .diff import diff   # safe — no external imports
+def compare(*args, **kwargs):
+    from .compare import compare_snapshots as _cmp
+    return _cmp(*args, **kwargs)
 
-__all__ = ["capture", "diff", "restore", "validate"]
+
+def export_json(*args, **kwargs):
+    from .compare import export_json as _ej
+    return _ej(*args, **kwargs)
+
+
+def export_pdf(*args, **kwargs):
+    from .compare import export_pdf as _ep
+    return _ep(*args, **kwargs)
+
+
+from .diff import diff   # no external deps
+
+__all__ = [
+    "capture", "diff", "restore", "validate",
+    "compare", "export_json", "export_pdf",
+]
