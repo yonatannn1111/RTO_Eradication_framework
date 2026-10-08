@@ -1,6 +1,5 @@
 """
-Forensics package — lazy imports so the package can be imported
-even when optional dependencies are missing.
+Forensics package — lazy imports for snap7-dependent modules.
 """
 
 
@@ -17,6 +16,11 @@ def restore(*args, **kwargs):
 def validate(*args, **kwargs):
     from .restore import validate as _validate
     return _validate(*args, **kwargs)
+
+
+def restore_with_retry(*args, **kwargs):
+    from .restore import restore_with_retry as _r
+    return _r(*args, **kwargs)
 
 
 def compare(*args, **kwargs):
@@ -36,7 +40,16 @@ def export_pdf(*args, **kwargs):
 
 from .diff import diff   # no external deps
 
+# Expose the exception class (lightweight — no snap7 import needed)
+def __getattr__(name):
+    if name == "RestoreFailedError":
+        from .restore import RestoreFailedError
+        return RestoreFailedError
+    raise AttributeError(name)
+
+
 __all__ = [
     "capture", "diff", "restore", "validate",
+    "restore_with_retry", "RestoreFailedError",
     "compare", "export_json", "export_pdf",
 ]
