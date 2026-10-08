@@ -1,5 +1,18 @@
 # RTO Eradication Framework — orchestrator configuration
+plc:
+  ip: "127.0.0.1"
+  modbus_port: 502
+  s7_port: 1102
+  https_port: 8443
 
+snapshot:
+  db1_size: 100
+  db2_size: 100
+  merker_size: 100
+
+output_dir: "output"
+
+# ... rest unchanged
 plc:
   ip: "127.0.0.1"
   modbus_port: 502
