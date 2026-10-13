@@ -209,6 +209,53 @@ def stage_diff(run_dir, clean, dirty):
     return payload
 
 
+
+def stage_dispatch_to_scheduler(config, run_dir, diff_result):
+    """
+    Task 22 — send the forensic alert to the scheduler and record the
+    safe window that comes back.
+    """
+    if diff_result is None or diff_result.get("report") is None:
+        LOG.info("dispatch: nothing to send")
+        return {"sent": False}
+
+    report = diff_result["report"]
+    if report.total_changes == 0:
+        LOG.info("dispatch: no changes — skipping")
+        return {"sent": False}
+
+    from modules.forensics.dispatch import dispatch_to_scheduler
+
+    # Use the first changed register to pick an infection type
+    first = report.changes[0]
+    infection_type = f"register-{first.offset // 2}-{first.severity}"
+
+    belt_id = config.get("belt_id", "plc_a")
+    scheduler_url = config.get("safety_url", "http://127.0.0.1:5003")
+
+    result = dispatch_to_scheduler(
+        belt_id=belt_id,
+        infection_type=infection_type,
+        scheduler_url=scheduler_url,
+        timeout_s=2.0,
+    )
+
+    payload = {
+        "sent": True,
+        "belt_id": belt_id,
+        "infection_type": infection_type,
+        "ok": result.ok,
+        "action": result.action,
+        "minutes": result.minutes,
+        "reason": result.reason,
+        "elapsed_s": round(result.elapsed_s, 3),
+        "error": result.error,
+    }
+    _dump(run_dir / "scheduler_dispatch.json", payload)
+    LOG.info(f"dispatch: ok={result.ok} action={result.action} "
+             f"elapsed={result.elapsed_s:.3f}s")
+    return payload
+
 def stage_dashboard(run_dir, results):
     from modules.orchestrator.dashboard import build_dashboard
     payload = build_dashboard(run_dir)
@@ -232,13 +279,13 @@ def run_pipeline(config, detect_timeout=30):
     if results["detection"].get("event") is not None:
         results["dirty"] = stage_dirty_snapshot(config, run_dir, results["detection"])
         results["diff"]  = stage_diff(run_dir, results["clean"], results["dirty"])
-
-        # NEW — bridge to scheduler
         results["bridge"] = stage_report_infection(config, run_dir, results["diff"])
+        results["dispatch"] = stage_dispatch_to_scheduler(config, run_dir, results["diff"])
     else:
         results["dirty"] = None
         results["diff"] = None
         results["bridge"] = {"submitted": False}
+        results["dispatch"] = {"sent": False}
 
     results["dashboard"] = stage_dashboard(run_dir, results)
     LOG.info(f"=== pipeline done — run dir: {run_dir} ===")

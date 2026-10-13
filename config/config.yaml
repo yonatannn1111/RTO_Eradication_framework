@@ -55,3 +55,6 @@ logging:
   flights_affected: 2
   belt_criticality: high
   wait_minutes: 0
+
+  belt_id: "plc_a"
+safety_url: "http://127.0.0.1:5003"

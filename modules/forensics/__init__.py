@@ -63,3 +63,13 @@ def report_infection(*args, **kwargs):
 def submit_to_scheduler(*args, **kwargs):
     from .bridge import submit_to_scheduler as _s
     return _s(*args, **kwargs)
+
+
+    def dispatch_to_scheduler(*args, **kwargs):
+     from .dispatch import dispatch_to_scheduler as _d
+    return _d(*args, **kwargs)
+
+
+def dispatch_from_alert(*args, **kwargs):
+    from .dispatch import dispatch_from_alert as _d
+    return _d(*args, **kwargs)
