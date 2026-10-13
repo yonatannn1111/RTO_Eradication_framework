@@ -49,3 +49,9 @@ logging:
   level: INFO
   file: "logs/orchestrator.log"
   scheduler_url: "http://127.0.0.1:5002"
+
+  cost_inputs:
+  queue_length: 8
+  flights_affected: 2
+  belt_criticality: high
+  wait_minutes: 0

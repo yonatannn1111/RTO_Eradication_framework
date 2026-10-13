@@ -1,0 +1,27 @@
+# Cost function configuration (Task 19)
+
+# Weights for each factor (all multiplied by the raw input)
+weights:
+  queue_length: 2.0
+  flights_affected: 10.0
+  belt_criticality: 5.0
+  wait_minutes: -3.0       # negative — waiting reduces cost
+  time_of_day: 8.0         # peak-hour multiplier
+
+# Decision thresholds (score >= threshold → decision)
+thresholds:
+  immediate: 50
+  wait: 20
+
+# Belt criticality levels (multiplied by belt_criticality weight)
+criticality_levels:
+  low: 1
+  medium: 3
+  high: 5
+  critical: 10
+
+# Time-of-day multipliers (added as weight × multiplier)
+time_of_day:
+  peak_hours: [7, 8, 9, 16, 17, 18, 19]   # local hours considered "peak"
+  peak_multiplier: 1.0                     # full weight during peak
+  off_peak_multiplier: 0.3                 # 30% of weight off-peak

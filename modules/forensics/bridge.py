@@ -151,3 +151,28 @@ def report_infection_aggregated(
     if len(changes) > 1:
         itype += f" (+{len(changes) - 1} more)"
     return submit_to_scheduler(plc_id, itype, scheduler_url)
+
+
+    def estimate_urgency(
+    plc_id: str,
+    infection_type: str,
+    queue_length: int = 0,
+    flights_affected: int = 0,
+    belt_criticality: str = "medium",
+    wait_minutes: float = 0.0,
+    cost_config_path: str = "config/cost.yaml",
+):
+     """Compute a cost score for this infection."""
+    from modules.cost import CostConfig, CostInputs, compute_cost
+    cfg = CostConfig.load(cost_config_path)
+    return compute_cost(
+        CostInputs(
+            queue_length=queue_length,
+            flights_affected=flights_affected,
+            belt_criticality=belt_criticality,
+            wait_minutes=wait_minutes,
+        ),
+        cfg,
+    )
+
+    

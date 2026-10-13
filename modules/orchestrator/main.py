@@ -163,41 +163,49 @@ def stage_diff(run_dir, clean, dirty):
 
 
     def stage_report_infection(config, run_dir, diff_result):
-     """Send the infection to the scheduler bridge."""
-    if diff_result is None or diff_result.get("report") is None:
-        LOG.info("infection bridge: nothing to report")
+     if diff_result is None or diff_result.get("report") is None:
         return {"submitted": False}
 
-    from modules.forensics.bridge import report_infection
+    from modules.forensics.bridge import report_infection, estimate_urgency
     report = diff_result["report"]
     if report.total_changes == 0:
-        LOG.info("infection bridge: no changes — nothing to submit")
         return {"submitted": False}
 
-    # Extract changed registers from the comparison report
+    # --- 1. compute cost from current PLC + config ---
+    urgency = estimate_urgency(
+        plc_id=config["plc"]["ip"],
+        infection_type="aggregated",
+        queue_length=config.get("cost_inputs", {}).get("queue_length", 0),
+        flights_affected=config.get("cost_inputs", {}).get("flights_affected", 0),
+        belt_criticality=config.get("cost_inputs", {}).get("belt_criticality", "medium"),
+        wait_minutes=config.get("cost_inputs", {}).get("wait_minutes", 0.0),
+    )
+    LOG.info(f"cost: score={urgency.score} decision={urgency.decision}")
+
+    # --- 2. submit with cost attached ---
     changes = [
-        {"register": ch.offset // 2,          # byte offset → register index
-         "offset": ch.offset,
-         "area": ch.area}
+        {"register": ch.offset // 2, "offset": ch.offset, "area": ch.area}
         for ch in report.changes
     ]
-
     scheduler_url = config.get("scheduler_url", "http://127.0.0.1:5002")
     results = report_infection(
         plc_id=config["plc"]["ip"],
         changes=changes,
         scheduler_url=scheduler_url,
+        cost_score=urgency.score,
+        decision=urgency.decision,
     )
 
     payload = {
         "submitted": True,
         "count": len(results),
+        "cost_score": urgency.score,
+        "decision": urgency.decision,
+        "breakdown": urgency.breakdown,
         "tasks": [r.task_id for r in results if r.ok],
         "errors": [r.error for r in results if not r.ok],
     }
     _dump(run_dir / "infection_bridge.json", payload)
-    LOG.info(f"infection bridge: {payload['count']} task(s) submitted "
-             f"to {scheduler_url}")
     return payload
 
 
