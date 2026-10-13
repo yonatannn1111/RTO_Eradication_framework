@@ -53,3 +53,13 @@ __all__ = [
     "restore_with_retry", "RestoreFailedError",
     "compare", "export_json", "export_pdf",
 ]
+
+
+def report_infection(*args, **kwargs):
+    from .bridge import report_infection as _r
+    return _r(*args, **kwargs)
+
+
+def submit_to_scheduler(*args, **kwargs):
+    from .bridge import submit_to_scheduler as _s
+    return _s(*args, **kwargs)

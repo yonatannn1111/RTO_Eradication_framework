@@ -48,3 +48,4 @@ detection:
 logging:
   level: INFO
   file: "logs/orchestrator.log"
+  scheduler_url: "http://127.0.0.1:5002"

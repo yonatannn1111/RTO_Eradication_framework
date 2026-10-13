@@ -160,6 +160,47 @@ def stage_diff(run_dir, clean, dirty):
     return {"report": report, "json": str(json_path), "pdf": str(pdf_path)}
 
 
+
+
+    def stage_report_infection(config, run_dir, diff_result):
+     """Send the infection to the scheduler bridge."""
+    if diff_result is None or diff_result.get("report") is None:
+        LOG.info("infection bridge: nothing to report")
+        return {"submitted": False}
+
+    from modules.forensics.bridge import report_infection
+    report = diff_result["report"]
+    if report.total_changes == 0:
+        LOG.info("infection bridge: no changes — nothing to submit")
+        return {"submitted": False}
+
+    # Extract changed registers from the comparison report
+    changes = [
+        {"register": ch.offset // 2,          # byte offset → register index
+         "offset": ch.offset,
+         "area": ch.area}
+        for ch in report.changes
+    ]
+
+    scheduler_url = config.get("scheduler_url", "http://127.0.0.1:5002")
+    results = report_infection(
+        plc_id=config["plc"]["ip"],
+        changes=changes,
+        scheduler_url=scheduler_url,
+    )
+
+    payload = {
+        "submitted": True,
+        "count": len(results),
+        "tasks": [r.task_id for r in results if r.ok],
+        "errors": [r.error for r in results if not r.ok],
+    }
+    _dump(run_dir / "infection_bridge.json", payload)
+    LOG.info(f"infection bridge: {payload['count']} task(s) submitted "
+             f"to {scheduler_url}")
+    return payload
+
+
 def stage_dashboard(run_dir, results):
     from modules.orchestrator.dashboard import build_dashboard
     payload = build_dashboard(run_dir)
@@ -174,34 +215,24 @@ def stage_dashboard(run_dir, results):
 def run_pipeline(config, detect_timeout=30):
     LOG.info("=== pipeline start ===")
     run_dir = make_run_dir(config.get("output_dir", "output"))
-
     results = {"run_dir": str(run_dir)}
 
-    # 1. infrastructure
     results["infrastructure"] = stage_infrastructure(config, run_dir)
-
-    # 2. clean snapshot
     results["clean"] = stage_clean_snapshot(config, run_dir)
-
-    # 3. detection
     results["detection"] = stage_detect(config, run_dir, timeout_s=detect_timeout)
 
-    # 4–5. only continue if detection fired
     if results["detection"].get("event") is not None:
-        results["dirty"] = stage_dirty_snapshot(
-            config, run_dir, results["detection"]
-        )
-        results["diff"] = stage_diff(
-            run_dir, results["clean"], results["dirty"]
-        )
+        results["dirty"] = stage_dirty_snapshot(config, run_dir, results["detection"])
+        results["diff"]  = stage_diff(run_dir, results["clean"], results["dirty"])
+
+        # NEW — bridge to scheduler
+        results["bridge"] = stage_report_infection(config, run_dir, results["diff"])
     else:
         results["dirty"] = None
         results["diff"] = None
-        LOG.warning("pipeline: skipping dirty/diff (no detection)")
+        results["bridge"] = {"submitted": False}
 
-    # 6. dashboard
     results["dashboard"] = stage_dashboard(run_dir, results)
-
     LOG.info(f"=== pipeline done — run dir: {run_dir} ===")
     return results
 
@@ -233,3 +264,11 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+
+
+
+
+
+
