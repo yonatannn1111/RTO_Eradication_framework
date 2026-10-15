@@ -1,15 +1,17 @@
 """
-End-to-end orchestrator (Task 16).
+End-to-end orchestrator (Task 16 + Tasks 22, 24).
 
 Pipeline stages
 ---------------
-1. Infrastructure — verify PLC reachable
-2. Snapshot       — capture clean baseline
-3. Detection      — watch for register change
-4. Dirty snapshot — captured within 1 s of detection
-5. Diff           — compare clean vs dirty
-6. Report         — write JSON + PDF
-7. Dashboard      — build dashboard.json + dashboard.html
+1.  Infrastructure          — verify PLC reachable
+2.  Snapshot                — capture clean baseline
+3.  Detection               — watch for register change
+4.  Dirty snapshot          — captured within 1 s of detection
+5.  Diff                    — compare clean vs dirty
+6.  Report infection (T18)  — submit to scheduler bridge
+7.  Dispatch (T22)          — synchronous scheduler call → safe window
+8.  Eradicate (T24)         — pre-snapshot → restore → post-snapshot
+9.  Dashboard               — build dashboard.json + dashboard.html
 """
 import argparse
 import json
@@ -43,7 +45,7 @@ def setup_logging(level=logging.INFO, log_file: Path | None = None):
 
 
 # ---------------------------------------------------------------------------
-# Run directory
+# Run directory + helpers
 # ---------------------------------------------------------------------------
 
 def make_run_dir(base: str = "output") -> Path:
@@ -60,7 +62,7 @@ def _dump(path: Path, payload):
 
 
 # ---------------------------------------------------------------------------
-# Stages
+# Stages 1–5
 # ---------------------------------------------------------------------------
 
 def stage_infrastructure(config, run_dir):
@@ -71,8 +73,8 @@ def stage_infrastructure(config, run_dir):
         s7_port=config["plc"]["s7_port"],
         https_port=config["plc"].get("https_port", 8443),
     )
-    LOG.info(f"infrastructure: modbus={status.modbus_open} s7={status.s7_open} "
-             f"https={status.https_open}")
+    LOG.info(f"infrastructure: modbus={status.modbus_open} "
+             f"s7={status.s7_open} https={status.https_open}")
     _dump(run_dir / "infrastructure.json", {
         "modbus_open": status.modbus_open,
         "s7_open": status.s7_open,
@@ -92,7 +94,6 @@ def stage_clean_snapshot(config, run_dir):
         merker_size=config["snapshot"]["merker_size"],
         output_dir=str(run_dir / "snapshots"),
     )
-    # rename to clean_snapshot.json for the pipeline
     src = Path(snap["path"])
     dst = run_dir / "clean_snapshot.json"
     shutil.copy(src, dst)
@@ -152,7 +153,7 @@ def stage_diff(run_dir, clean, dirty):
     report = compare(str(clean["path"]), str(dirty["path"]))
 
     json_path = run_dir / "comparison.json"
-    pdf_path  = run_dir / "comparison.pdf"
+    pdf_path = run_dir / "comparison.pdf"
     export_json(report, str(json_path))
     export_pdf(report, str(pdf_path))
     LOG.info(f"diff: {report.total_changes} changes -> "
@@ -160,10 +161,12 @@ def stage_diff(run_dir, clean, dirty):
     return {"report": report, "json": str(json_path), "pdf": str(pdf_path)}
 
 
+# ---------------------------------------------------------------------------
+# Stage 6 — report infection (Task 18)
+# ---------------------------------------------------------------------------
 
-
-    def stage_report_infection(config, run_dir, diff_result):
-     if diff_result is None or diff_result.get("report") is None:
+def stage_report_infection(config, run_dir, diff_result):
+    if diff_result is None or diff_result.get("report") is None:
         return {"submitted": False}
 
     from modules.forensics.bridge import report_infection, estimate_urgency
@@ -177,7 +180,8 @@ def stage_diff(run_dir, clean, dirty):
         infection_type="aggregated",
         queue_length=config.get("cost_inputs", {}).get("queue_length", 0),
         flights_affected=config.get("cost_inputs", {}).get("flights_affected", 0),
-        belt_criticality=config.get("cost_inputs", {}).get("belt_criticality", "medium"),
+        belt_criticality=config.get("cost_inputs", {}).get(
+            "belt_criticality", "medium"),
         wait_minutes=config.get("cost_inputs", {}).get("wait_minutes", 0.0),
     )
     LOG.info(f"cost: score={urgency.score} decision={urgency.decision}")
@@ -209,6 +213,9 @@ def stage_diff(run_dir, clean, dirty):
     return payload
 
 
+# ---------------------------------------------------------------------------
+# Stage 7 — dispatch (Task 22)
+# ---------------------------------------------------------------------------
 
 def stage_dispatch_to_scheduler(config, run_dir, diff_result):
     """
@@ -226,7 +233,6 @@ def stage_dispatch_to_scheduler(config, run_dir, diff_result):
 
     from modules.forensics.dispatch import dispatch_to_scheduler
 
-    # Use the first changed register to pick an infection type
     first = report.changes[0]
     infection_type = f"register-{first.offset // 2}-{first.severity}"
 
@@ -255,77 +261,11 @@ def stage_dispatch_to_scheduler(config, run_dir, diff_result):
     LOG.info(f"dispatch: ok={result.ok} action={result.action} "
              f"elapsed={result.elapsed_s:.3f}s")
     return payload
-results["dispatch"] = stage_dispatch_to_scheduler(config, run_dir, results["diff"])
-
-        # Task 24 — eradication with pre/post snapshots
-infection_snap = results["dirty"]["path"] if results.get("dirty") else None
-results["eradication"] = stage_eradicate(
-            config, run_dir, infection_snap,
-        )
-def stage_dashboard(run_dir, results):
-    from modules.orchestrator.dashboard import build_dashboard
-    payload = build_dashboard(run_dir)
-    LOG.info(f"dashboard: {run_dir}/dashboard.html")
-    return payload
 
 
 # ---------------------------------------------------------------------------
-# Pipeline
+# Stage 8 — eradicate (Task 24)
 # ---------------------------------------------------------------------------
-
-def run_pipeline(config, detect_timeout=30):
-    LOG.info("=== pipeline start ===")
-    run_dir = make_run_dir(config.get("output_dir", "output"))
-    results = {"run_dir": str(run_dir)}
-
-    results["infrastructure"] = stage_infrastructure(config, run_dir)
-    results["clean"] = stage_clean_snapshot(config, run_dir)
-    results["detection"] = stage_detect(config, run_dir, timeout_s=detect_timeout)
-
-    if results["detection"].get("event") is not None:
-        results["dirty"] = stage_dirty_snapshot(config, run_dir, results["detection"])
-        results["diff"]  = stage_diff(run_dir, results["clean"], results["dirty"])
-        results["bridge"] = stage_report_infection(config, run_dir, results["diff"])
-        results["dispatch"] = stage_dispatch_to_scheduler(config, run_dir, results["diff"])
-    else:
-        results["dirty"] = None
-        results["diff"] = None
-        results["bridge"] = {"submitted": False}
-        results["dispatch"] = {"sent": False}
-
-    results["dashboard"] = stage_dashboard(run_dir, results)
-    LOG.info(f"=== pipeline done — run dir: {run_dir} ===")
-    return results
-
-
-def parse_args():
-    p = argparse.ArgumentParser()
-    p.add_argument("--config", default="config/config.yaml")
-    p.add_argument("--detect-timeout", type=float, default=30.0,
-                   help="Seconds to wait for a register change")
-    p.add_argument("--verbose", "-v", action="store_true")
-    return p.parse_args()
-
-
-def main():
-    args = parse_args()
-    setup_logging(logging.DEBUG if args.verbose else logging.INFO)
-
-    try:
-        import yaml
-        with open(args.config) as f:
-            config = yaml.safe_load(f)
-    except Exception as e:
-        LOG.error(f"failed to load config: {e}")
-        return 1
-
-    run_pipeline(config, detect_timeout=args.detect_timeout)
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
-
 
 def stage_eradicate(config, run_dir, infection_snapshot_path):
     """
@@ -336,14 +276,13 @@ def stage_eradicate(config, run_dir, infection_snapshot_path):
         capture_pre_eradication,
         capture_post_eradication,
         restore_with_retry,
-        RestoreFailedError,
     )
 
     plc_ip = config["plc"]["ip"]
-    trusted = config.get("trusted_snapshot")     # clean baseline to restore from
+    trusted = config.get("trusted_snapshot")
     port = config["plc"].get("s7_port", 1102)
 
-    # 1. pre-eradication snapshot (evidence of the last-seen state)
+    # 1. pre-eradication snapshot
     pre = capture_pre_eradication(
         plc_ip,
         infection_snapshot=infection_snapshot_path,
@@ -353,9 +292,9 @@ def stage_eradicate(config, run_dir, infection_snapshot_path):
     LOG.info(f"pre_eradication snapshot: {pre['path']} "
              f"(sha256={pre['sha256_hash'][:12]}...)")
 
-    # 2. run the restore (Task 15)
-    if trusted is None:
-        LOG.warning("no trusted_snapshot in config — skipping restore step")
+    # 2. restore (Task 15)
+    if not trusted or not Path(trusted).exists():
+        LOG.warning("no trusted_snapshot available — skipping restore step")
         return {"pre": pre, "restored": False, "post": None}
 
     try:
@@ -385,6 +324,90 @@ def stage_eradicate(config, run_dir, infection_snapshot_path):
     return {"pre": pre, "restored": ok, "post": post}
 
 
+# ---------------------------------------------------------------------------
+# Stage 9 — dashboard
+# ---------------------------------------------------------------------------
+
+def stage_dashboard(run_dir, results):
+    from modules.orchestrator.dashboard import build_dashboard
+    payload = build_dashboard(run_dir)
+    LOG.info(f"dashboard: {run_dir}/dashboard.html")
+    return payload
 
 
+# ---------------------------------------------------------------------------
+# Pipeline
+# ---------------------------------------------------------------------------
 
+def run_pipeline(config, detect_timeout=30):
+    LOG.info("=== pipeline start ===")
+    run_dir = make_run_dir(config.get("output_dir", "output"))
+    results = {"run_dir": str(run_dir)}
+
+    results["infrastructure"] = stage_infrastructure(config, run_dir)
+    results["clean"] = stage_clean_snapshot(config, run_dir)
+    results["detection"] = stage_detect(config, run_dir, timeout_s=detect_timeout)
+
+    if results["detection"].get("event") is not None:
+        results["dirty"] = stage_dirty_snapshot(
+            config, run_dir, results["detection"],
+        )
+        results["diff"] = stage_diff(
+            run_dir, results["clean"], results["dirty"],
+        )
+        results["bridge"] = stage_report_infection(
+            config, run_dir, results["diff"],
+        )
+        results["dispatch"] = stage_dispatch_to_scheduler(
+            config, run_dir, results["diff"],
+        )
+
+        # Task 24 — eradication with pre/post snapshots
+        infection_snap = (results["dirty"]["path"]
+                          if results.get("dirty") else None)
+        results["eradication"] = stage_eradicate(
+            config, run_dir, infection_snap,
+        )
+    else:
+        results["dirty"] = None
+        results["diff"] = None
+        results["bridge"] = {"submitted": False}
+        results["dispatch"] = {"sent": False}
+        results["eradication"] = {"pre": None, "restored": False, "post": None}
+
+    results["dashboard"] = stage_dashboard(run_dir, results)
+    LOG.info(f"=== pipeline done — run dir: {run_dir} ===")
+    return results
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--config", default="config/config.yaml")
+    p.add_argument("--detect-timeout", type=float, default=30.0,
+                   help="Seconds to wait for a register change")
+    p.add_argument("--verbose", "-v", action="store_true")
+    return p.parse_args()
+
+
+def main():
+    args = parse_args()
+    setup_logging(logging.DEBUG if args.verbose else logging.INFO)
+
+    try:
+        import yaml
+        with open(args.config) as f:
+            config = yaml.safe_load(f)
+    except Exception as e:
+        LOG.error(f"failed to load config: {e}")
+        return 1
+
+    run_pipeline(config, detect_timeout=args.detect_timeout)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

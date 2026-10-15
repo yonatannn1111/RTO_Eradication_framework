@@ -18,3 +18,9 @@ __all__ = [
     # logging
     "get_attack_logger", "read_log_tail",
 ]
+from .reinfect import ReinfectionAttack
+
+__all__ = [
+    # ... existing exports
+    "ReinfectionAttack",
+]
