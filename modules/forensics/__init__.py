@@ -73,3 +73,13 @@ def submit_to_scheduler(*args, **kwargs):
 def dispatch_from_alert(*args, **kwargs):
     from .dispatch import dispatch_from_alert as _d
     return _d(*args, **kwargs)
+
+
+    def capture_pre_eradication(*args, **kwargs):
+     from .pre_eradication import capture_pre_eradication as _f
+    return _f(*args, **kwargs)
+
+
+def capture_post_eradication(*args, **kwargs):
+    from .pre_eradication import capture_post_eradication as _f
+    return _f(*args, **kwargs)

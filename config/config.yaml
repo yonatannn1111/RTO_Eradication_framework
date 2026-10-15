@@ -58,3 +58,4 @@ logging:
 
   belt_id: "plc_a"
 safety_url: "http://127.0.0.1:5003"
+trusted_snapshot: "snapshots/trusted_baseline.json"

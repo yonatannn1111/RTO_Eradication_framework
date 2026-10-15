@@ -255,7 +255,13 @@ def stage_dispatch_to_scheduler(config, run_dir, diff_result):
     LOG.info(f"dispatch: ok={result.ok} action={result.action} "
              f"elapsed={result.elapsed_s:.3f}s")
     return payload
+results["dispatch"] = stage_dispatch_to_scheduler(config, run_dir, results["diff"])
 
+        # Task 24 — eradication with pre/post snapshots
+infection_snap = results["dirty"]["path"] if results.get("dirty") else None
+results["eradication"] = stage_eradicate(
+            config, run_dir, infection_snap,
+        )
 def stage_dashboard(run_dir, results):
     from modules.orchestrator.dashboard import build_dashboard
     payload = build_dashboard(run_dir)
@@ -321,7 +327,62 @@ if __name__ == "__main__":
     sys.exit(main())
 
 
+def stage_eradicate(config, run_dir, infection_snapshot_path):
+    """
+    Task 24 — take a pre-eradication snapshot, then perform the restore,
+    then take a post-eradication snapshot. Return all three paths.
+    """
+    from modules.forensics import (
+        capture_pre_eradication,
+        capture_post_eradication,
+        restore_with_retry,
+        RestoreFailedError,
+    )
 
+    plc_ip = config["plc"]["ip"]
+    trusted = config.get("trusted_snapshot")     # clean baseline to restore from
+    port = config["plc"].get("s7_port", 1102)
+
+    # 1. pre-eradication snapshot (evidence of the last-seen state)
+    pre = capture_pre_eradication(
+        plc_ip,
+        infection_snapshot=infection_snapshot_path,
+        output_dir=str(run_dir),
+        tcp_port=port,
+    )
+    LOG.info(f"pre_eradication snapshot: {pre['path']} "
+             f"(sha256={pre['sha256_hash'][:12]}...)")
+
+    # 2. run the restore (Task 15)
+    if trusted is None:
+        LOG.warning("no trusted_snapshot in config — skipping restore step")
+        return {"pre": pre, "restored": False, "post": None}
+
+    try:
+        ok, history, last = restore_with_retry(
+            trusted, plc_ip,
+            tcp_port=port,
+            max_attempts=3,
+            retry_delay_s=2.0,
+            raise_on_failure=False,
+        )
+    except Exception as e:
+        LOG.error(f"restore failed with exception: {e}")
+        ok = False
+
+    LOG.info(f"restore result: ok={ok}")
+
+    # 3. post-eradication snapshot
+    post = capture_post_eradication(
+        plc_ip,
+        pre_eradication_snapshot=pre["path"],
+        output_dir=str(run_dir),
+        tcp_port=port,
+    )
+    LOG.info(f"post_eradication snapshot: {post['path']} "
+             f"(sha256={post['sha256_hash'][:12]}...)")
+
+    return {"pre": pre, "restored": ok, "post": post}
 
 
 
