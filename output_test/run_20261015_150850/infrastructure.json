@@ -1,0 +1,6 @@
+{
+  "modbus_open": true,
+  "s7_open": true,
+  "https_open": true,
+  "errors": []
+}

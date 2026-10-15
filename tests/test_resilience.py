@@ -8,6 +8,10 @@ from modules.scheduler.twin import ConveyorTwin, TwinConfig
 from modules.scheduler.plc_source import PLCReading
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 def _fake_reading(time_s: float = 0.0, queue: int = 0) -> PLCReading:
     return PLCReading(
         timestamp="2026-10-13 10:00:00.000",
@@ -50,34 +54,6 @@ def test_twin_survives_single_outage(cfg, tmp_path):
 
     def flaky_read():
         call_count["n"] += 1
-        if 3 <= call_count["n"] <= 14:
-            raise ConnectionError("simulated PLC reboot")
-        return _fake_reading(time_s=call_count["n"] * 0.05, queue=0)
-
-    with patch.object(twin._reader, "connect"), \
-         patch.object(twin._reader, "read", side_effect=flaky_read), \
-         patch.object(twin._reader, "close"):
-        twin.run(duration_s=3.0)
-
-    # event assertions
-    events = [e["event"] for e in twin.events]
-    assert "twin_started" in events
-    assert "plc_restored" in events
-    assert "twin_stopped" in events
-
-    # gap markers live in the sample CSV, not in state.samples
-    sample_csv = [p for p in Path(tmp_path).glob("twin_*.csv")
-                  if "events" not in p.name][0]
-    rows = sample_csv.read_text().splitlines()[1:]   # skip header
-    gap_rows = [r for r in rows if r.split(",")[2] == "-1"]
-    assert len(gap_rows) >= 1, f"expected gap rows in {sample_csv}"
-
-    # summary reflects the gaps
-    summary = twin.resilience_summary()
-    assert summary["restoration_events"] >= 1
-
-    def flaky_read():
-        call_count["n"] += 1
         # Fail for 12 consecutive reads. With max_attempts=3,
         # that's 4 outer ticks that exhaust retries → gap markers.
         if 3 <= call_count["n"] <= 14:
@@ -89,19 +65,36 @@ def test_twin_survives_single_outage(cfg, tmp_path):
          patch.object(twin._reader, "close"):
         twin.run(duration_s=3.0)
 
+    # --- event log assertions ---------------------------------------------
     events = [e["event"] for e in twin.events]
     assert "twin_started" in events
     assert "plc_restored" in events
     assert "twin_stopped" in events
 
-    gaps = [s for s in twin.state.samples if s.queue_length == -1]
-    assert len(gaps) >= 1, "expected at least one gap marker"
+    # --- summary reflects the outage --------------------------------------
+    summary = twin.resilience_summary()
+    assert summary["gap_samples"] >= 1, \
+        f"expected gap samples, got {summary['gap_samples']}"
+    assert summary["restoration_events"] >= 1, \
+        f"expected restoration events, got {summary['restoration_events']}"
+
+    # --- gap markers live in the sample CSV, not state.samples ------------
+    sample_csvs = [p for p in Path(tmp_path).glob("twin_*.csv")
+                   if "events" not in p.name]
+    assert len(sample_csvs) == 1, "expected exactly one sample CSV"
+
+    rows = sample_csvs[0].read_text().splitlines()[1:]      # skip header
+    gap_rows = [r for r in rows if r.split(",")[2] == "-1"]
+    assert len(gap_rows) >= 1, \
+        f"expected gap rows in {sample_csvs[0]}, got {len(gap_rows)}"
 
 
 def test_twin_recovers_without_gaps_from_short_blip(cfg):
     """
-    A short failure (fewer retries than max_attempts) is absorbed
-    inside _read_resilient — no gap rows, no interruption.
+    A short failure (fewer than max_attempts consecutive failures) is
+    absorbed inside _read_resilient — no gap rows are written to the
+    sample CSV. The twin still notices the brief outage, so one
+    plc_restored event is logged, but no data was lost.
     """
     twin = ConveyorTwin(cfg)
 
@@ -109,7 +102,7 @@ def test_twin_recovers_without_gaps_from_short_blip(cfg):
 
     def flaky_read():
         call_count["n"] += 1
-        # fail on exactly calls 3-4 → within max_attempts=3, so no gap
+        # fail exactly twice → within a single outer tick's retry budget
         if 3 <= call_count["n"] <= 4:
             raise ConnectionError("brief blip")
         return _fake_reading(time_s=call_count["n"] * 0.05, queue=0)
@@ -119,12 +112,18 @@ def test_twin_recovers_without_gaps_from_short_blip(cfg):
          patch.object(twin._reader, "close"):
         twin.run(duration_s=0.5)
 
-    gaps = [s for s in twin.state.samples if s.queue_length == -1]
-    # the retry loop absorbed the blip — no gap markers
-    assert len(gaps) == 0
-    # no crash either
-    assert "twin_stopped" in [e["event"] for e in twin.events]
+    summary = twin.resilience_summary()
 
+    # No gap rows were needed — the retry loop recovered the same tick
+    assert summary["gap_samples"] == 0, \
+        f"expected no gap samples, got {summary['gap_samples']}"
+
+    # The twin did notice the outage → one restoration event
+    assert summary["restoration_events"] == 1, \
+        f"expected 1 restoration event, got {summary['restoration_events']}"
+
+    # And it stopped cleanly
+    assert "twin_stopped" in [e["event"] for e in twin.events]
 
 # ---------------------------------------------------------------------------
 # Summaries
@@ -160,7 +159,8 @@ def test_resilience_summary_after_run(cfg):
 def test_event_csv_written(cfg, tmp_path):
     twin = ConveyorTwin(cfg)
     with patch.object(twin._reader, "connect"), \
-         patch.object(twin._reader, "read", return_value=_fake_reading()), \
+         patch.object(twin._reader, "read",
+                       return_value=_fake_reading()), \
          patch.object(twin._reader, "close"):
         twin.run(duration_s=0.2)
 
@@ -176,7 +176,8 @@ def test_event_csv_written(cfg, tmp_path):
 def test_sample_csv_written(cfg, tmp_path):
     twin = ConveyorTwin(cfg)
     with patch.object(twin._reader, "connect"), \
-         patch.object(twin._reader, "read", return_value=_fake_reading(queue=5)), \
+         patch.object(twin._reader, "read",
+                       return_value=_fake_reading(queue=5)), \
          patch.object(twin._reader, "close"):
         twin.run(duration_s=0.2)
 

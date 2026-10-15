@@ -30,8 +30,8 @@ class TwinConfig:
     speedup: float = 10.0
     prediction_horizon: float = 60.0
     output_dir: str = "output"
-    max_attempts: int = 6                   # Task 23 — retry budget
-    max_backoff_s: float = 5.0              # Task 23 — cap on exponential backoff
+    max_attempts: int = 6
+    max_backoff_s: float = 5.0
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +74,7 @@ class TwinState:
 
 
 # ---------------------------------------------------------------------------
-# Predictor (Task 14)
+# Predictor
 # ---------------------------------------------------------------------------
 
 def predict_queue(current_queue: int, arrival_rate: float,
@@ -106,7 +106,7 @@ def predict_queue(current_queue: int, arrival_rate: float,
 
 
 # ---------------------------------------------------------------------------
-# Digital twin (Task 23 — resilient)
+# Digital twin (resilient)
 # ---------------------------------------------------------------------------
 
 class ConveyorTwin:
@@ -117,12 +117,10 @@ class ConveyorTwin:
         )
         self._reader = PLCReader(cfg.plc_ip, cfg.modbus_port)
         self._env = simpy.Environment()
-
-        # event log
         self.events: list[dict] = []
         self._outage_started_at: str | None = None
         self._outage_started_t: float | None = None
-        self._gap_count = 0
+        self._gap_count: int = 0
 
     # --- CSVs -------------------------------------------------------------
 
@@ -154,23 +152,15 @@ class ConveyorTwin:
                          event, detail])
         self.events.append({"timestamp": ts, "event": event, "detail": detail})
 
-    # --- resilient read (Task 23) -----------------------------------------
+    # --- resilient read ---------------------------------------------------
 
     def _read_resilient(self, max_attempts: int | None = None):
-        """
-        Try to read the PLC. On failure, back off exponentially and retry
-        up to `max_attempts` (defaults to config value). Backoff is
-        capped at config.max_backoff_s.
-
-        Returns (reading | None, recovered_after_outage: bool).
-        """
         if max_attempts is None:
             max_attempts = self.cfg.max_attempts
 
         delay = 0.2
         attempt = 0
 
-        # force reconnect attempt on next try
         if self._reader._client is not None:
             try:
                 self._reader.close()
@@ -200,10 +190,9 @@ class ConveyorTwin:
 
         return None, False
 
-    # --- run (Task 23 resilient loop) -------------------------------------
+    # --- main loop --------------------------------------------------------
 
     def run(self, duration_s: float):
-        # best-effort initial connect — don't crash if PLC is down
         try:
             self._reader.connect()
         except Exception as e:
@@ -231,6 +220,9 @@ class ConveyorTwin:
                     self._gap_count += 1
                     self._log_event(
                         events_w, "outage_ongoing",
+                        f"no data after retries "
+                        f"(elapsed={time.time() - t0:.1f}s)",
+                        t=time.time() - t0,
                     )
                     sample_w.writerow([
                         datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
@@ -243,7 +235,9 @@ class ConveyorTwin:
                     continue
 
                 if recovered and self._outage_started_at is not None:
-                    outage_s = time.time() - (self._outage_started_t or time.time())
+                    outage_s = time.time() - (
+                        self._outage_started_t or time.time()
+                    )
                     self._log_event(
                         events_w, "plc_restored",
                         f"outage lasted {outage_s:.2f}s",
@@ -284,15 +278,18 @@ class ConveyorTwin:
                 self._reader.close()
             except Exception:
                 pass
-            print(f"[twin] wrote {len(self.state.samples)} samples to {sample_path}")
-            print(f"[twin] wrote {len(self.events)} events to {events_path}")
+            print(f"[twin] wrote {len(self.state.samples)} samples "
+                  f"to {sample_path}")
+            print(f"[twin] wrote {len(self.events)} events "
+                  f"to {events_path}")
 
         return sample_path
 
     # --- summaries --------------------------------------------------------
 
     def summary(self) -> dict:
-        ql = [s.queue_length for s in self.state.samples if s.queue_length >= 0]
+        ql = [s.queue_length for s in self.state.samples
+              if s.queue_length >= 0]
         return {
             "samples": len(self.state.samples),
             "avg_queue": round(statistics.mean(ql), 3) if ql else 0,
@@ -302,9 +299,11 @@ class ConveyorTwin:
             **self.resilience_summary(),
         }
 
-        def resilience_summary(self) -> dict:
-         outages = [e for e in self.events if e["event"] == "outage_ongoing"]
-        restores = [e for e in self.events if e["event"] == "plc_restored"]
+    def resilience_summary(self) -> dict:
+        outages = [e for e in self.events
+                   if e["event"] == "outage_ongoing"]
+        restores = [e for e in self.events
+                    if e["event"] == "plc_restored"]
         return {
             "total_samples": len(self.state.samples),
             "gap_samples": self._gap_count,
@@ -316,7 +315,6 @@ class ConveyorTwin:
     def predict(self) -> dict:
         if not self.state.samples:
             return {"error": "no samples collected"}
-        # skip gap markers when predicting
         good = [s for s in self.state.samples if s.queue_length >= 0]
         if not good:
             return {"error": "no valid samples"}

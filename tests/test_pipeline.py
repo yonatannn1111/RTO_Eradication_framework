@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 import pytest
 
+import modules.orchestrator.main as orch
+
 
 # --- fixtures --------------------------------------------------------------
 
@@ -22,12 +24,17 @@ def cfg():
 def mock_capture(tmp_path):
     """Fake snapshot file so we don't need a real PLC."""
     def _fake_capture(ip, tcp_port=1102, output_dir=".", **kwargs):
-        out = Path(output_dir); out.mkdir(parents=True, exist_ok=True)
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
         fname = out / f"snap_{len(list(out.glob('snap_*.json')))}.json"
         payload = {
             "timestamp": "2026-10-08 17:00:00",
             "plc_ip": ip,
-            "areas": {"DB1": [0, 0, 0, 0], "DB2": [0, 0, 0, 0], "Merker": [0, 0, 0, 0]},
+            "areas": {
+                "DB1": [0, 0, 0, 0],
+                "DB2": [0, 0, 0, 0],
+                "Merker": [0, 0, 0, 0],
+            },
         }
         fname.write_text(json.dumps(payload))
         return {"path": str(fname), **payload}
@@ -46,7 +53,8 @@ def test_run_dir_created(tmp_path):
 def test_dashboard_writes_files(tmp_path):
     from modules.orchestrator.dashboard import build_dashboard
     (tmp_path / "clean_snapshot.json").write_text(json.dumps({
-        "timestamp": "x", "plc_ip": "127.0.0.1",
+        "timestamp": "x",
+        "plc_ip": "127.0.0.1",
         "areas": {"DB1": [0, 1]},
     }))
     (tmp_path / "comparison.json").write_text(json.dumps({
@@ -61,11 +69,14 @@ def test_dashboard_writes_files(tmp_path):
 
 
 def test_pipeline_skips_when_no_change(cfg, mock_capture):
-    from modules.orchestrator import main as orch
-
+    """
+    When the watcher reports no change, run_pipeline should return
+    dirty=None and diff=None rather than crashing.
+    """
     with patch("modules.forensics.capture", side_effect=mock_capture), \
          patch("modules.ot_infrastructure.verify_plc") as mock_v, \
-         patch("modules.forensics.watcher.RegisterWatcher.wait", return_value=None):
+         patch("modules.forensics.watcher.RegisterWatcher.wait",
+               return_value=None):
 
         mock_v.return_value.modbus_open = True
         mock_v.return_value.s7_open = True

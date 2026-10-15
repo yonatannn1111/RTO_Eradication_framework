@@ -1,0 +1,24 @@
+{
+  "run_dir": "output_test/run_20261015_151004",
+  "updated_at": "2026-10-15 15:10:04",
+  "stages": {
+    "infrastructure": {
+      "modbus_open": true,
+      "s7_open": true,
+      "https_open": true,
+      "errors": []
+    },
+    "detection": {
+      "status": "timeout"
+    },
+    "snapshot": {
+      "clean": "output_test/run_20261015_151004/clean_snapshot.json",
+      "dirty": null
+    },
+    "report": {
+      "json": null,
+      "pdf": null
+    }
+  },
+  "summary": {}
+}

@@ -15,7 +15,7 @@ def test_predict_unstable_when_arrival_exceeds_service():
     r = predict_queue(current_queue=0, arrival_rate=2.0,
                      service_rate=1.0, horizon_s=10)
     assert r["stable"] is False
-    assert r["predicted_queue"] == 20       # (2 - 1) * 10
+    assert r["predicted_queue"] == 10       # (2 - 1) * 10
 
 
 def test_predict_requires_running_server():
