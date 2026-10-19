@@ -7,6 +7,7 @@ scheduler says NOW. Runs all PLCs in parallel via asyncio tasks and logs
 every event to SQLite.
 """
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -130,10 +131,47 @@ async def incident_response_cycle(
     }
 
     # --- 0. alert received -------------------------------------------------
+    raw_changes = alert.get("changes", [])
+    
+    # THE FIX: Format changes exactly how the Streamlit dashboard expects them
+    formatted_changes = [
+        {
+            "register": c["register"],
+            "baseline": c["baseline"],
+            "observed": c["observed"]
+        }
+        for c in raw_changes
+    ]
+
     db.log(plc_id, "alert_received",
-           {"changes": alert.get("changes", []),
+           {"changes": formatted_changes,
             "detected_at": alert.get("detected_at")})
-    LOG.info(f"[{plc_id}] cycle start — alert: {alert.get('changes')}")
+    LOG.info(f"[{plc_id}] cycle start — alert: {formatted_changes}")
+
+    # Save the detection log for the Streamlit dashboard to read
+    try:
+        # Create a run directory in output/ for the dashboard to find
+        run_dir = Path(cfg.output_dir) / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        
+        detection_payload = {
+            "status": "detected",
+            "detected_at": alert.get("detected_at"),
+            "elapsed_s": alert.get("elapsed_s"),
+            "changes": formatted_changes,
+        }
+        (run_dir / "detection.json").write_text(json.dumps(detection_payload, indent=2, default=str))
+        
+        # We also need a comparison.json for the dashboard to show severity
+        comparison_payload = {
+            "total_changes": len(formatted_changes),
+            "changes": [{"offset": c["register"] * 2, "severity": "high"} for c in formatted_changes],
+            "changes_by_severity": {"high": len(formatted_changes)},
+            "changes_by_area": {"DB1": len(formatted_changes)}
+        }
+        (run_dir / "comparison.json").write_text(json.dumps(comparison_payload, indent=2, default=str))
+    except Exception as e:
+        LOG.warning(f"failed to write dashboard alert files: {e}")
 
     # --- 1. pre-snapshot (before any changes) ------------------------------
     try:

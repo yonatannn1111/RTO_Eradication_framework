@@ -122,11 +122,21 @@ def stage_detect(config, run_dir, timeout_s=30):
         _dump(run_dir / "detection.json", {"status": "timeout"})
         return {"event": None}
 
+    # THE FIX: Format changes exactly how the Streamlit dashboard expects them
+    formatted_changes = [
+        {
+            "register": c["register"],
+            "baseline": c["baseline"],
+            "observed": c["observed"]
+        }
+        for c in event.all_changes
+    ]
+
     _dump(run_dir / "detection.json", {
         "status": "detected",
         "detected_at": event.detected_at,
         "elapsed_s": event.elapsed_s,
-        "changes": event.all_changes,
+        "changes": formatted_changes, # <-- updated
     })
     return {"event": event}
 
@@ -174,7 +184,6 @@ def stage_report_infection(config, run_dir, diff_result):
     if report.total_changes == 0:
         return {"submitted": False}
 
-    # --- 1. compute cost from current PLC + config ---
     urgency = estimate_urgency(
         plc_id=config["plc"]["ip"],
         infection_type="aggregated",
@@ -186,7 +195,6 @@ def stage_report_infection(config, run_dir, diff_result):
     )
     LOG.info(f"cost: score={urgency.score} decision={urgency.decision}")
 
-    # --- 2. submit with cost attached ---
     changes = [
         {"register": ch.offset // 2, "offset": ch.offset, "area": ch.area}
         for ch in report.changes
@@ -218,10 +226,6 @@ def stage_report_infection(config, run_dir, diff_result):
 # ---------------------------------------------------------------------------
 
 def stage_dispatch_to_scheduler(config, run_dir, diff_result):
-    """
-    Task 22 — send the forensic alert to the scheduler and record the
-    safe window that comes back.
-    """
     if diff_result is None or diff_result.get("report") is None:
         LOG.info("dispatch: nothing to send")
         return {"sent": False}
@@ -268,10 +272,6 @@ def stage_dispatch_to_scheduler(config, run_dir, diff_result):
 # ---------------------------------------------------------------------------
 
 def stage_eradicate(config, run_dir, infection_snapshot_path):
-    """
-    Task 24 — take a pre-eradication snapshot, then perform the restore,
-    then take a post-eradication snapshot. Return all three paths.
-    """
     from modules.forensics import (
         capture_pre_eradication,
         capture_post_eradication,
@@ -282,7 +282,6 @@ def stage_eradicate(config, run_dir, infection_snapshot_path):
     trusted = config.get("trusted_snapshot")
     port = config["plc"].get("s7_port", 1102)
 
-    # 1. pre-eradication snapshot
     pre = capture_pre_eradication(
         plc_ip,
         infection_snapshot=infection_snapshot_path,
@@ -292,7 +291,6 @@ def stage_eradicate(config, run_dir, infection_snapshot_path):
     LOG.info(f"pre_eradication snapshot: {pre['path']} "
              f"(sha256={pre['sha256_hash'][:12]}...)")
 
-    # 2. restore (Task 15)
     if not trusted or not Path(trusted).exists():
         LOG.warning("no trusted_snapshot available — skipping restore step")
         return {"pre": pre, "restored": False, "post": None}
@@ -311,7 +309,6 @@ def stage_eradicate(config, run_dir, infection_snapshot_path):
 
     LOG.info(f"restore result: ok={ok}")
 
-    # 3. post-eradication snapshot
     post = capture_post_eradication(
         plc_ip,
         pre_eradication_snapshot=pre["path"],
@@ -362,7 +359,6 @@ def run_pipeline(config, detect_timeout=30):
             config, run_dir, results["diff"],
         )
 
-        # Task 24 — eradication with pre/post snapshots
         infection_snap = (results["dirty"]["path"]
                           if results.get("dirty") else None)
         results["eradication"] = stage_eradicate(
