@@ -40,7 +40,7 @@ st.set_page_config(
 
 cfg = DashboardConfig()
 
-st.title("🛡️ OT Incident Response Dashboard")
+st.title(" RTO Incident Response Dashboard")
 st.caption(
     f"Auto-refresh every {cfg.refresh_seconds}s · "
     f"Conveyor {cfg.conveyor_url} · "
