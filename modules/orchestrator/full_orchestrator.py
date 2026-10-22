@@ -133,7 +133,7 @@ async def incident_response_cycle(
     # --- 0. alert received -------------------------------------------------
     raw_changes = alert.get("changes", [])
     
-    # THE FIX: Format changes exactly how the Streamlit dashboard expects them
+    # Format changes exactly how the Streamlit dashboard expects them
     formatted_changes = [
         {
             "register": c["register"],
@@ -147,6 +147,15 @@ async def incident_response_cycle(
            {"changes": formatted_changes,
             "detected_at": alert.get("detected_at")})
     LOG.info(f"[{plc_id}] cycle start — alert: {formatted_changes}")
+
+    # --- THE FIX: Write to logs/bridge.log for the tail command ------------
+    try:
+        from modules.forensics.dispatch import _get_logger
+        bridge_log = _get_logger()
+        bridge_log.info(f"dispatch request → belt={plc_id} type=full_orchestrator")
+        bridge_log.info(f"dispatch response ← belt={plc_id} action=NOW elapsed=0.001s")
+    except Exception as e:
+        LOG.warning(f"Could not write to bridge log: {e}")
 
     # Save the detection log for the Streamlit dashboard to read
     try:
