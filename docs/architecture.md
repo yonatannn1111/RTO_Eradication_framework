@@ -36,12 +36,12 @@
 
 | Module | Owner | Purpose |
 |--------|-------|---------|
-| `ot_infrastructure` | Student A | Verify PLC reachability, ports open |
-| `forensics` | Student B | Snapshot, restore, validate, diff |
-| `attack_simulation` | Student C | Modbus attack scripts |
-| `scheduler` | Student D | Interval runner + SimPy model |
-| `orchestrator` | Student E | Wire stages into one pipeline |
-| `tests` | Student F | Smoke + integration tests |
+| `ot_infrastructure` | Hamere | Verify PLC reachability, ports open |
+| `forensics` | Bethel | Snapshot, restore, validate, diff |
+| `attack_simulation` | Abreham | Modbus attack scripts |
+| `scheduler` | Kedest | Interval runner + SimPy model |
+| `orchestrator` | Yonatan| Wire stages into one pipeline |
+| `tests` |  Yonatan,Bethel  | Smoke + integration tests |
 
 ## Data flow
 
