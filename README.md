@@ -57,9 +57,9 @@ It handles **multiple PLCs in parallel** via asyncio, and provides a **Streamlit
 
 ## Register Map (Conveyor Program)
 
-| Modbus address | OpenPLC | R/W | Purpose |
+| Members​​​   |  ID |
 |---|---|---|---|
-| 0 | `%MW0` | R/W | Motor control — 0=stop, 1=run |
+| ​Yonatan Getachew Moges  | ​CTC-955-26 |
 | 1 | `%MW1` | R/W | Belt speed setpoint (ms) |
 | 2 | `%MW2` | R   | Timer T1 elapsed (ms) |
 | 3 | `%MW3` | R   | Bag counter C1 |
