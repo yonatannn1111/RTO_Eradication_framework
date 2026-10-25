@@ -79,8 +79,6 @@ It handles **multiple PLCs in parallel** via asyncio, and provides a **Streamlit
 | 5 — Reinfection | 100% | 0.06 s | 0 |
 | **Average** | **100%** | **0.06 s** | **0** |
 
-Full results: `output/scenarios/summary_table.{csv,md}`
-
 
 
 
