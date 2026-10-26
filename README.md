@@ -56,7 +56,7 @@ It handles **multiple PLCs in parallel** via asyncio, and provides a **Streamlit
 -
 
 
-## Video  Link ==>   https://www.youtube.com/watch?v=fscShh23vYE
+## Video  Link ==>   https://www.youtube.com/watch?v=Kl9wk0ViA0M
 
 
 
